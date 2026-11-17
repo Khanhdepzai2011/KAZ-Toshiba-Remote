@@ -1,6 +1,10 @@
 package com.kaz.toshibaremote;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
+import android.net.Uri;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.hardware.ConsumerIrManager;
@@ -24,6 +28,9 @@ public class MainActivity extends Activity {
   private ConsumerIrManager transmitter;
   private SharedPreferences prefs;
   private TextView status;
+  private NsdManager nsd;
+  private NsdManager.DiscoveryListener discovery;
+  private TextView wifiStatus;
   private final Map<String,String> builtins = new LinkedHashMap<>();
   private final int navy = 0xff101827, surface = 0xff19263b, blue = 0xff4b9cff;
 
@@ -54,6 +61,18 @@ public class MainActivity extends Activity {
 
     TextView info=label("BỘ MÃ: Toshiba NEC1 (40BF) • thử trước với POWER",12,false,0xffaac0dc);
     info.setPadding(0,0,0,dp(12));page.addView(info);
+    TextView wifiTitle=label("WI-FI • GOOGLE TV",19,true,Color.WHITE);
+    wifiTitle.setPadding(0,dp(10),0,dp(8));page.addView(wifiTitle);
+    wifiStatus=label("Tìm TV Google TV trong cùng mạng Wi-Fi.",13,false,0xffaac0dc);
+    page.addView(wifiStatus);
+    Button discover=new Button(this);discover.setText("QUÉT TV QUA WI-FI");discover.setAllCaps(false);
+    page.addView(discover,new LinearLayout.LayoutParams(-1,dp(54)));
+    discover.setOnClickListener(v->discoverTv());
+    Button remote=new Button(this);remote.setText("MỞ ĐIỀU KHIỂN GOOGLE TV");remote.setAllCaps(false);
+    page.addView(remote,new LinearLayout.LayoutParams(-1,dp(54)));
+    remote.setOnClickListener(v->openGoogleTv());
+    TextView disclosure=label("Chế độ Wi-Fi v2.0: phát hiện TV qua mạng và mở điều khiển chính thức của Google TV để ghép nối bằng mã PIN. Các nút bên dưới vẫn sử dụng hồng ngoại; app chưa tự gửi lệnh Wi-Fi.",12,false,0xffaac0dc);
+    disclosure.setPadding(0,dp(8),0,dp(12));page.addView(disclosure);
     addRow(page,new String[]{"POWER","MUTE"},true);
     addRow(page,new String[]{"SOURCE","HOME","MENU"},false);
     addRow(page,new String[]{"VOL+","UP","CH+"},false);
@@ -72,6 +91,40 @@ public class MainActivity extends Activity {
     restore.setOnClickListener(v->{prefs.edit().clear().apply();status.setText("Đã khôi phục bộ mã Toshiba NEC1");});
     setContentView(scroll);
   }
+
+  private void discoverTv(){
+    stopDiscovery();
+    nsd=(NsdManager)getSystemService(NSD_SERVICE);
+    if(nsd==null){wifiStatus.setText("Thiết bị không hỗ trợ tìm kiếm dịch vụ mạng");return;}
+    discovery=new NsdManager.DiscoveryListener(){
+      public void onDiscoveryStarted(String type){runOnUiThread(()->wifiStatus.setText("Đang tìm Google TV trong mạng Wi-Fi..."));}
+      public void onServiceFound(NsdServiceInfo service){
+        runOnUiThread(()->wifiStatus.setText("Đã phát hiện: "+service.getServiceName()+"\\nMở Google TV để ghép nối và điều khiển."));
+      }
+      public void onServiceLost(NsdServiceInfo service){}
+      public void onDiscoveryStopped(String type){}
+      public void onStartDiscoveryFailed(String type,int code){
+        runOnUiThread(()->wifiStatus.setText("Không quét được mạng (lỗi "+code+")"));stopDiscovery();
+      }
+      public void onStopDiscoveryFailed(String type,int code){}
+    };
+    try{nsd.discoverServices("_androidtvremote2._tcp.",NsdManager.PROTOCOL_DNS_SD,discovery);}
+    catch(Exception e){wifiStatus.setText("Không thể quét: "+e.getMessage());}
+  }
+  private void stopDiscovery(){
+    if(nsd!=null&&discovery!=null){try{nsd.stopServiceDiscovery(discovery);}catch(Exception ignored){}}
+    discovery=null;
+  }
+  private void openGoogleTv(){
+    Intent intent=getPackageManager().getLaunchIntentForPackage("com.google.android.videos");
+    if(intent!=null){
+      startActivity(intent);
+      Toast.makeText(this,"Trong Google TV, mở Remote rồi chọn TV để ghép nối",Toast.LENGTH_LONG).show();
+    }else{
+      startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.videos")));
+    }
+  }
+  @Override protected void onDestroy(){stopDiscovery();super.onDestroy();}
 
   private void loadToshibaNEC1() {
     // IRDB: Toshiba/TV/64,-1.csv : NEC1 device 64, subdevice -1.
